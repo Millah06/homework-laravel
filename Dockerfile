@@ -1,68 +1,79 @@
-# ===== base image =====
-FROM php:8.2-fpm
+# Use PHP 8.2 with Apache
+FROM php:8.2-apache
 
-# make noninteractive
-ENV DEBIAN_FRONTEND=noninteractive
-
-# ===== system deps =====
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    unzip \
-    zip \
-    build-essential \
-    ca-certificates \
+    unzip zip git curl \
+    libpq-dev libzip-dev libonig-dev \
+    nodejs npm
+
+# Install PHP extensions
+RUN docker-php-ext-install pdo pdo_mysql pdo_sqlite
+
+# Enable Apache mod_rewrite
+RUN a2enmod rewrite
+
+# Copy project files
+COPY . /var/www/html
+
+WORKDIR /var/www/html
+
+# Install Composer
+RUN curl -sS https://getcomposer.org/installer | php \
+    && mv composer.phar /usr/local/bin/composer
+
+# Install dependencies
+RUN composer install      # ❗ removed `--no-dev` to avoid failure
+RUN npm install
+RUN npm run build
+
+# Generate APP_KEY
+RUN php artisan key:generate --force
+
+# Fix permissions
+RUN chown -R www-data:www-data storage bootstrap/cache
+
+# Expose Render port
+EXPOSE 10000
+
+CMD php artisan serve --host=0.0.0.0 --port=10000
+
+
+
+# Use official PHP image with Apache
+FROM php:8.2-apache
+
+# Install required system packages
+RUN apt-get update && apt-get install -y \
+    libzip-dev \
+    zlib1g-dev \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
-    libzip-dev \
- && docker-php-ext-install pdo pdo_mysql zip pcntl
+    zip unzip git curl \
+    && docker-php-ext-install pdo pdo_mysql pdo_sqlite zip
 
-# ===== install node (for vite build) =====
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
- && apt-get install -y nodejs
+# Enable Apache rewrite
+RUN a2enmod rewrite
 
-# ===== composer (copy from official composer image) =====
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+# Copy source code
+COPY . /var/www/html
 
-# ===== set working dir =====
+# Set working directory
 WORKDIR /var/www/html
 
-# ===== copy project files =====
-COPY . .
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+RUN composer install --no-dev --optimize-autoloader
 
-# ===== ensure sqlite db file exists and correct DB config for build =====
-# create database directory & file if using sqlite
-RUN touch database/database.sqlite \
- # make sure .env exists for artisan commands during build (copy example if missing)
- && if [ ! -f .env ]; then cp .env.example .env; fi
+# Give permissions (important for Render)
+RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
-# ensure .env has sqlite path (optional safety — only works if .env uses DB_DATABASE env var)
-# (If you already have proper DB_DATABASE in .env, you can skip manipulation)
-# RUN sed -i "s|DB_CONNECTION=.*|DB_CONNECTION=sqlite|" .env
-# RUN sed -i "s|DB_DATABASE=.*|DB_DATABASE=/var/www/html/database/database.sqlite|" .env
+# Expose port
+EXPOSE 80
 
-# ===== install node deps and build front-end =====
-RUN npm config set unsafe-perm true \
- && npm install --legacy-peer-deps \
- && npm run build
+# Start Apache
+CMD ["apache2-foreground"]
 
-# ===== install php deps & optimize autoloader =====
-RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
 
-# ===== generate app key, migrate DB, cache config =====
-# run migrations in build so database/tables exist inside image (suitable for sqlite)
-RUN php artisan key:generate --ansi \
- && php artisan migrate --force --no-interaction \
- && php artisan config:cache \
- && php artisan route:cache || true \
- && php artisan view:cache || true
-
-# ===== permissions =====
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
- && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
-
-# ===== expose port and start server =====
-EXPOSE 8000
-
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+docker-php-ext-install mysqli
