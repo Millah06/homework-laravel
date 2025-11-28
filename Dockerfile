@@ -1,30 +1,35 @@
 FROM php:8.2-fpm
 
-# Install system packages
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    zip unzip curl git \
-    libpng-dev libonig-dev libxml2-dev \
-    && docker-php-ext-install pdo pdo_mysql mbstring exif pcntl bcmath gd
+    git \
+    unzip \
+    curl \
+    libpq-dev \
+    libzip-dev \
+    zip \
+    && docker-php-ext-install pdo pdo_mysql zip
 
 # Install Composer
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
+# Set working directory
 WORKDIR /var/www/html
 
 # Copy project files
 COPY . .
 
-# Install PHP dependencies
+# Install Laravel dependencies
 RUN composer install --no-dev --optimize-autoloader
 
-# Cache config + routes
-RUN php artisan key:generate
-RUN php artisan config:cache
-RUN php artisan route:cache
-RUN php artisan view:cache
+# Copy example env if not present
+RUN if [ ! -f .env ]; then cp .env.example .env; fi
 
-# Permissions
-RUN chown -R www-data:www-data storage bootstrap/cache
+# Generate app key
+RUN php artisan key:generate
+
+# Set permissions
+RUN chmod -R 777 storage bootstrap/cache
 
 EXPOSE 8000
 
