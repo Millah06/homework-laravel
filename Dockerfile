@@ -28,6 +28,10 @@ RUN if [ ! -f .env ]; then cp .env.example .env; fi
 # Generate app key
 RUN php artisan key:generate
 
+# Add this to your Dockerfile
+RUN touch /var/www/html/database/database.sqlite
+RUN chmod 775 /var/www/html/database/database.sqlite
+
 # Set permissions
 RUN chmod -R 777 storage bootstrap/cache
 
