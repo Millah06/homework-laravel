@@ -35,6 +35,15 @@ RUN chmod 775 /var/www/html/database/database.sqlite
 # Set permissions
 RUN chmod -R 777 storage bootstrap/cache
 
+ 
+ 
+RUN php artisan config:cache
+RUN php artisan route:cache
+RUN php artisan view:cache
+
+# this creates the tables
+RUN php artisan migrate --force
+
 EXPOSE 8000
 
 CMD php artisan serve --host=0.0.0.0 --port=8000
