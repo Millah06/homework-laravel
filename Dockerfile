@@ -1,79 +1,49 @@
-# Use PHP 8.2 with Apache
-FROM php:8.2-apache
+FROM php:8.2-fpm
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    unzip zip git curl \
-    libpq-dev libzip-dev libonig-dev \
-    nodejs npm
-
-# Install PHP extensions
-RUN docker-php-ext-install pdo pdo_mysql pdo_sqlite
-
-# Enable Apache mod_rewrite
-RUN a2enmod rewrite
-
-# Copy project files
-COPY . /var/www/html
-
-WORKDIR /var/www/html
+    git \
+    unzip \
+    curl \
+    libpq-dev \
+    libzip-dev \
+    zip \
+    && docker-php-ext-install pdo pdo_mysql zip
 
 # Install Composer
-RUN curl -sS https://getcomposer.org/installer | php \
-    && mv composer.phar /usr/local/bin/composer
-
-# Install dependencies
-RUN composer install      # ❗ removed `--no-dev` to avoid failure
-RUN npm install
-RUN npm run build
-
-# Generate APP_KEY
-RUN php artisan key:generate --force
-
-# Fix permissions
-RUN chown -R www-data:www-data storage bootstrap/cache
-
-# Expose Render port
-EXPOSE 10000
-
-CMD php artisan serve --host=0.0.0.0 --port=10000
-
-
-
-# Use official PHP image with Apache
-FROM php:8.2-apache
-
-# Install required system packages
-RUN apt-get update && apt-get install -y \
-    libzip-dev \
-    zlib1g-dev \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    zip unzip git curl \
-    && docker-php-ext-install pdo pdo_mysql pdo_sqlite zip
-
-# Enable Apache rewrite
-RUN a2enmod rewrite
-
-# Copy source code
-COPY . /var/www/html
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Set working directory
 WORKDIR /var/www/html
 
-# Install Composer
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# Copy project files
+COPY . .
+
+# Install Laravel dependencies
 RUN composer install --no-dev --optimize-autoloader
 
-# Give permissions (important for Render)
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+# Copy example env if not present
+RUN if [ ! -f .env ]; then cp .env.example .env; fi
 
-# Expose port
-EXPOSE 80
+# Generate app key
+RUN php artisan key:generate
 
-# Start Apache
-CMD ["apache2-foreground"]
+# Add this to your Dockerfile
+RUN touch /var/www/html/database/database.sqlite
+RUN chmod 775 /var/www/html/database/database.sqlite
 
+# Set permissions
+RUN chmod -R 777 storage bootstrap/cache
 
-docker-php-ext-install mysqli
+ 
+ 
+RUN php artisan config:cache
+RUN php artisan route:cache
+RUN php artisan view:cache
+
+# this creates the tables
+RUN php artisan migrate --force
+
+EXPOSE 8000
+
+CMD php artisan serve --host=0.0.0.0 --port=8000
