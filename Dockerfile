@@ -3,47 +3,57 @@ FROM php:8.2-fpm
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
-    unzip \
     curl \
-    libpq-dev \
-    libzip-dev \
+    libpng-dev \
+    libonig-dev \
+    libxml2-dev \
     zip \
-    && docker-php-ext-install pdo pdo_mysql zip
+    unzip \
+    nodejs \
+    npm
 
-# Install Composer
+# Clear cache
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install PHP extensions
+RUN docker-php-ext-install pdo pdo_mysql mbstring exif pcntl bcmath gd
+
+# Get latest Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy project files
+# Copy package files first
+COPY package*.json ./
+COPY vite.config.js ./
+
+# Install Node dependencies
+RUN npm install
+
+# Copy application code
 COPY . .
 
-# Install Laravel dependencies
+# Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader
 
-# Copy example env if not present
-RUN if [ ! -f .env ]; then cp .env.example .env; fi
+# Build frontend assets
+RUN npm run build
 
-# Generate app key
-RUN php artisan key:generate
-
-# Add this to your Dockerfile
+# Create database file and run migrations
 RUN touch /var/www/html/database/database.sqlite
 RUN chmod 775 /var/www/html/database/database.sqlite
+RUN php artisan migrate --force
 
-# Set permissions
-RUN chmod -R 777 storage bootstrap/cache
-
- 
- 
+# Cache configuration
 RUN php artisan config:cache
 RUN php artisan route:cache
 RUN php artisan view:cache
 
-# this creates the tables
-RUN php artisan migrate --force
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html/storage
+RUN chown -R www-data:www-data /var/www/html/bootstrap/cache
 
 EXPOSE 8000
 
-CMD php artisan serve --host=0.0.0.0 --port=8000
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
